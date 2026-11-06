@@ -153,6 +153,93 @@
             
         }
 
+        .pipeline {
+            margin-top: 30px;
+            text-align: left;
+        }
+
+        .pipeline h2 {
+            text-align: center;
+        }
+
+        .pipeline-track {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .pipeline-step {
+            position: relative;
+            display: grid;
+            grid-template-columns: 90px 1fr;
+            gap: 12px;
+            align-items: center;
+            padding: 10px;
+            background-color: rgba(112, 117, 117, 0.9);
+            border-radius: 8px;
+        }
+
+        .pipeline-step:not(:last-child)::after {
+            content: "";
+            position: absolute;
+            width: 2px;
+            height: 12px;
+            left: 44px;
+            bottom: -12px;
+            background-color: #4caf50;
+        }
+
+        .pipeline-step img {
+            width: 90px;
+            height: 90px;
+            object-fit: cover;
+            margin: 0;
+            border-radius: 6px;
+        }
+
+        .pipeline-step h3,
+        .pipeline-step p {
+            margin: 0;
+        }
+
+        .pipeline-step h3 {
+            font-size: 16px;
+        }
+
+        .pipeline-step p {
+            font-size: 15px;
+            margin-top: 6px;
+        }
+
+        @media screen and (min-width: 700px) {
+            .pipeline-track {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 28px 14px;
+            }
+
+            .pipeline-step {
+                display: block;
+                min-width: 0;
+            }
+
+            .pipeline-step:not(:last-child)::after {
+                width: 14px;
+                height: 2px;
+                left: auto;
+                right: -14px;
+                top: 50%;
+                bottom: auto;
+            }
+
+            .pipeline-step img {
+                display: block;
+                width: 100%;
+                height: 110px;
+                margin-bottom: 10px;
+            }
+        }
+
 
 
     </style>
@@ -209,6 +296,25 @@
                 <p class="result">{{ result }}</p>
             {% endif %}
         {% endif %}    
+
+        {% if pipeline_steps %}
+            <section class="pipeline" aria-labelledby="pipeline-title">
+                <h2 id="pipeline-title">Image Processing Pipeline</h2>
+                <div class="pipeline-track">
+                    {% for step in pipeline_steps %}
+                        <article class="pipeline-step">
+                            <img src="{{ step.image }}" alt="{{ step.name }} preview">
+                            <div>
+                                <h3>{{ step.name }}</h3>
+                                {% if step.value %}
+                                    <p>{{ step.value }}</p>
+                                {% endif %}
+                            </div>
+                        </article>
+                    {% endfor %}
+                </div>
+            </section>
+        {% endif %}
     </div>
 
     

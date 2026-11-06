@@ -18,6 +18,7 @@ app = Flask(__name__)
 os.makedirs('uploads', exist_ok=True)
 os.makedirs('static/ela_images', exist_ok=True)
 os.makedirs('static/uploads', exist_ok=True)
+os.makedirs('static/pipeline', exist_ok=True)
 os.makedirs('static', exist_ok=True)
 
 # =========================
@@ -38,7 +39,7 @@ print("=" * 60)
 # LOAD MODEL
 # =========================
 model = keras.models.load_model(MODEL_PATH)
-print("✅ Model loaded successfully!")
+print("Model loaded successfully!")
 
 
 def load_metrics():
@@ -82,6 +83,7 @@ def index():
     result = None
     confidence = None
     error = None
+    pipeline_steps = []
 
     if request.method == 'POST':
         if 'file' not in request.files:
@@ -98,8 +100,18 @@ def index():
                 file.save(filepath)
                 uploaded_image_path = url_for('static', filename=f'uploads/{unique_name}')
 
-                ela_image_path = convert_and_save_ela_image(filepath)
-                confidence, result = predict_fake_real(ela_image_path)
+                upload_id = uuid.uuid4().hex
+                ela_filepath = convert_and_save_ela_image(filepath, upload_id)
+                confidence, result, normalized_array = predict_fake_real(ela_filepath)
+                pipeline_steps = build_pipeline_steps(
+                    filepath,
+                    ela_filepath,
+                    normalized_array,
+                    upload_id,
+                    confidence,
+                    result,
+                )
+                ela_image_path = url_for('static', filename=static_filename(ela_filepath))
 
     return render_template(
         'index.html',
@@ -108,6 +120,7 @@ def index():
         confidence=confidence,
         result=result,
         error=error,
+        pipeline_steps=pipeline_steps,
     )
 
 
@@ -160,9 +173,9 @@ def prepare_image(image_path):
 # =========================
 # SAVE ELA IMAGE
 # =========================
-def convert_and_save_ela_image(image_path):
+def convert_and_save_ela_image(image_path, upload_id):
     ela_image = convert_to_ela_image(image_path)
-    ela_path = 'static/ela_images/ela_image.png'
+    ela_path = f'static/ela_images/ela_{upload_id}.png'
     ela_image.save(ela_path)
     return ela_path
 
@@ -174,13 +187,69 @@ def predict_fake_real(ela_image_path):
 
     image_array = image_array.reshape(1, 128, 128, 3)
 
-    prediction = model.predict(image_array)
+    prediction = model.predict(image_array, verbose=0)
 
     confidence = round(float(np.max(prediction)) * 100, 2)
 
     result = 'AI Generated Art' if np.argmax(prediction) == 0 else 'Real Human Art'
 
-    return confidence, result
+    return confidence, result, image_array[0]
+
+
+def save_feature_map(image_array, upload_id):
+    feature_model = keras.Model(
+        inputs=model.inputs,
+        outputs=model.get_layer('conv2d').output,
+    )
+    feature_maps = feature_model.predict(image_array.reshape(1, 128, 128, 3), verbose=0)[0]
+    feature_count = min(feature_maps.shape[-1], 16)
+    tile_size = feature_maps.shape[0]
+    montage = Image.new('RGB', (tile_size * 4, tile_size * 4))
+
+    for index in range(feature_count):
+        feature_map = feature_maps[:, :, index]
+        minimum = feature_map.min()
+        maximum = feature_map.max()
+        if maximum > minimum:
+            feature_map = (feature_map - minimum) / (maximum - minimum)
+        feature_image = Image.fromarray((feature_map * 255).astype(np.uint8), mode='L').convert('RGB')
+        montage.paste(feature_image, ((index % 4) * tile_size, (index // 4) * tile_size))
+
+    feature_path = f'static/pipeline/features_{upload_id}.png'
+    montage.save(feature_path)
+    return feature_path
+
+
+def build_pipeline_steps(original_path, ela_path, normalized_array, upload_id, confidence, result):
+    os.makedirs('static/pipeline', exist_ok=True)
+    ela_image = Image.open(ela_path).convert('RGB')
+    resized_path = f'static/pipeline/resized_{upload_id}.png'
+    normalized_path = f'static/pipeline/normalized_{upload_id}.png'
+
+    resized_image = ela_image.resize((128, 128), Image.Resampling.LANCZOS)
+    resized_image.save(resized_path)
+    Image.fromarray((normalized_array * 255).clip(0, 255).astype(np.uint8)).save(normalized_path)
+
+    feature_path = save_feature_map(normalized_array, upload_id)
+    original_url = url_for('static', filename=static_filename(original_path))
+    ela_url = url_for('static', filename=static_filename(ela_path))
+    resized_url = url_for('static', filename=static_filename(resized_path))
+    normalized_url = url_for('static', filename=static_filename(normalized_path))
+    feature_url = url_for('static', filename=static_filename(feature_path))
+    return [
+        {'name': 'Original Image', 'image': original_url},
+        {'name': 'Image Preprocessing', 'image': resized_url},
+        {'name': 'Normalization', 'image': normalized_url},
+        {'name': 'Error Level Analysis (ELA)', 'image': ela_url},
+        {'name': 'CNN Feature Extraction', 'image': feature_url},
+        {'name': 'Classification', 'image': original_url, 'value': result},
+        {'name': 'Confidence Score', 'image': original_url, 'value': f'{confidence}%'},
+    ]
+
+
+def static_filename(path):
+    normalized_path = path.replace('\\', '/').lstrip('/')
+    return normalized_path[7:] if normalized_path.startswith('static/') else normalized_path
 
 # =========================
 # RUN APP
